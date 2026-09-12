@@ -26,9 +26,9 @@ func InitDB(databaseURL string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err == nil {
 		if pingErr := pool.Ping(ctx); pingErr == nil {
-			log.Println("Connected to PostgreSQL database successfully.")
+			log.Println("Connected to database")
 			if err := runMigrations(pool); err != nil {
-				log.Printf("Warning: automatic migration failed: %v", err)
+				log.Printf("Migration warning: %v", err)
 			}
 			return pool, nil
 		} else {
@@ -37,9 +37,9 @@ func InitDB(databaseURL string) (*pgxpool.Pool, error) {
 			if ensureDatabaseExists(databaseURL, dbName) {
 				pool, err = pgxpool.NewWithConfig(ctx, config)
 				if err == nil && pool.Ping(ctx) == nil {
-					log.Printf("Created and connected to PostgreSQL database '%s' successfully.", dbName)
+					log.Printf("Connected to database '%s'", dbName)
 					if err := runMigrations(pool); err != nil {
-						log.Printf("Warning: automatic migration failed: %v", err)
+						log.Printf("Migration warning: %v", err)
 					}
 					return pool, nil
 				}
@@ -74,11 +74,10 @@ func ensureDatabaseExists(databaseURL, dbName string) bool {
 	query := fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)
 	_, err = adminPool.Exec(ctx, query)
 	if err != nil {
-		log.Printf("Could not auto-create database '%s': %v", dbName, err)
 		return false
 	}
 
-	log.Printf("Database '%s' created successfully on PostgreSQL server.", dbName)
+	log.Printf("Database '%s' created", dbName)
 	return true
 }
 
@@ -87,7 +86,7 @@ func runMigrations(pool *pgxpool.Pool) error {
 	defer cancel()
 
 	schemaSQL := `
-	CREATE TABLE IF NOT EXISTS tasks (
+	CREATE TABLE IF NOT EXISTS kalender_tasks (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		task_date DATE NOT NULL,
 		start_time TIME NOT NULL,
@@ -100,37 +99,37 @@ func runMigrations(pool *pgxpool.Pool) error {
 		created_at TIMESTAMPTZ DEFAULT NOW()
 	);
 
-	ALTER TABLE tasks ADD COLUMN IF NOT EXISTS requested_by_name VARCHAR(255);
-	ALTER TABLE tasks ADD COLUMN IF NOT EXISTS requested_by_email VARCHAR(255);
+	ALTER TABLE kalender_tasks ADD COLUMN IF NOT EXISTS requested_by_name VARCHAR(255);
+	ALTER TABLE kalender_tasks ADD COLUMN IF NOT EXISTS requested_by_email VARCHAR(255);
 
-	CREATE INDEX IF NOT EXISTS idx_tasks_date ON tasks(task_date);
+	CREATE INDEX IF NOT EXISTS idx_kalender_tasks_date ON kalender_tasks(task_date);
 	`
 	_, err := pool.Exec(ctx, schemaSQL)
 	if err != nil {
-		return fmt.Errorf("failed to run schema migrations: %w", err)
+		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
 	var count int
-	err = pool.QueryRow(ctx, "SELECT COUNT(*) FROM tasks").Scan(&count)
+	err = pool.QueryRow(ctx, "SELECT COUNT(*) FROM kalender_tasks").Scan(&count)
 	if err == nil && count == 0 {
 		migrationFile := "migrations/001_create_tasks.sql"
 		if content, err := os.ReadFile(migrationFile); err == nil {
 			_, _ = pool.Exec(ctx, string(content))
-			log.Println("Database seeded from 001_create_tasks.sql")
+			log.Println("Database seeded from migration file")
 		} else {
 			seedSQL := `
-			INSERT INTO tasks (task_date, start_time, end_time, title, description, is_booked)
+			INSERT INTO kalender_tasks (task_date, start_time, end_time, title, description, is_booked)
 			VALUES 
-			  (CURRENT_DATE, '08:00', '10:00', 'Client Discovery Meeting', 'Discuss project scope and deliverables', false),
-			  (CURRENT_DATE, '10:30', '12:00', 'System Architecture Review', 'Evaluate Supabase DB schema & indexes', false),
-			  (CURRENT_DATE, '13:00', '15:00', 'Deep Work: Go Backend', 'Implement auth middleware & calendar handler', true),
-			  (CURRENT_DATE + INTERVAL '1 day', '09:00', '11:00', 'UI Component Styling', 'Design glassmorphism modals with Tailwind CSS', false),
-			  (CURRENT_DATE + INTERVAL '1 day', '14:00', '16:00', 'Team Sync & Demo', 'Showcase Go server-rendered calendar grid', true),
-			  (CURRENT_DATE + INTERVAL '3 days', '08:30', '11:30', 'Code Audit & Performance Tuning', 'Optimize pgx query pooling and dynamic indices', true),
-			  (CURRENT_DATE + INTERVAL '5 days', '10:00', '12:00', 'Sprint Retrospective', 'Review accomplishments and backlog grooming', false);
+			  (CURRENT_DATE, '08:00', '10:00', 'Discovery Meeting', 'Project scope', false),
+			  (CURRENT_DATE, '10:30', '12:00', 'Architecture Review', 'Schema design', false),
+			  (CURRENT_DATE, '13:00', '15:00', 'Backend Development', 'API integration', true),
+			  (CURRENT_DATE + INTERVAL '1 day', '09:00', '11:00', 'UI Component Styling', 'Layout design', false),
+			  (CURRENT_DATE + INTERVAL '1 day', '14:00', '16:00', 'Team Sync', 'Sprint review', true),
+			  (CURRENT_DATE + INTERVAL '3 days', '08:30', '11:30', 'Code Audit', 'Performance tuning', true),
+			  (CURRENT_DATE + INTERVAL '5 days', '10:00', '12:00', 'Sprint Retrospective', 'Backlog grooming', false);
 			`
 			_, _ = pool.Exec(ctx, seedSQL)
-			log.Println("Database seeded with default initial records.")
+			log.Println("Database seeded with initial records")
 		}
 	}
 

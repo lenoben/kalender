@@ -23,7 +23,7 @@ import (
 func main() {
 	cfg := config.LoadConfig()
 
-	log.Printf("Starting Go Supabase Multi-Task Calendar App in %s mode...", cfg.Env)
+	log.Printf("Starting application in %s mode...", cfg.Env)
 
 	// Initialize Database Pool
 	pool, err := db.InitDB(cfg.DatabaseURL)

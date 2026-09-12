@@ -27,7 +27,6 @@ func NewCalendarHandler(db *pgxpool.Pool, auth *auth.AuthManager, templates *tem
 	}
 }
 
-// RenderCalendar renders the full monthly calendar view
 func (h *CalendarHandler) RenderCalendar(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	yearStr := r.URL.Query().Get("year")
@@ -149,7 +148,7 @@ func (h *CalendarHandler) buildCalendarMonth(ctx context.Context, year, month in
 func (h *CalendarHandler) fetchTasksForDateRange(ctx context.Context, startDate, endDate string) (map[string][]models.Task, error) {
 	query := `
 		SELECT id, task_date::text, start_time::text, end_time::text, title, COALESCE(description, ''), is_booked, COALESCE(requested_by_name, ''), COALESCE(requested_by_email, ''), created_at
-		FROM tasks
+		FROM kalender_tasks
 		WHERE task_date >= $1 AND task_date <= $2
 		ORDER BY task_date ASC, start_time ASC
 	`

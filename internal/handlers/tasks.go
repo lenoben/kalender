@@ -24,7 +24,6 @@ func NewTasksHandler(db *pgxpool.Pool, auth *auth.AuthManager) *TasksHandler {
 	}
 }
 
-// GetTasksByDate handles GET /api/tasks?date=YYYY-MM-DD
 func (h *TasksHandler) GetTasksByDate(w http.ResponseWriter, r *http.Request) {
 	dateStr := r.URL.Query().Get("date")
 	if dateStr == "" {
@@ -36,7 +35,7 @@ func (h *TasksHandler) GetTasksByDate(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT id, task_date::text, start_time::text, end_time::text, title, COALESCE(description, ''), is_booked, COALESCE(requested_by_name, ''), COALESCE(requested_by_email, ''), created_at
-		FROM tasks
+		FROM kalender_tasks
 		WHERE task_date = $1
 		ORDER BY start_time ASC
 	`
@@ -86,20 +85,19 @@ func (h *TasksHandler) GetTasksByDate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// PublicRequestSlot handles POST /api/request-slot (Public visitor booking request)
 func (h *TasksHandler) PublicRequestSlot(w http.ResponseWriter, r *http.Request) {
 	var req models.PublicBookingRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Message: "Invalid JSON request format"})
+		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Message: "Invalid JSON format"})
 		return
 	}
 
 	if req.TaskDate == "" || req.StartTime == "" || req.EndTime == "" || req.RequestedByName == "" || req.RequestedByEmail == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Message: "Please provide date, start/end time, your name, and email."})
+		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Message: "Required fields missing"})
 		return
 	}
 
@@ -110,9 +108,8 @@ func (h *TasksHandler) PublicRequestSlot(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	// Insert as booked task reserved by outsider
 	query := `
-		INSERT INTO tasks (task_date, start_time, end_time, title, description, is_booked, requested_by_name, requested_by_email)
+		INSERT INTO kalender_tasks (task_date, start_time, end_time, title, description, is_booked, requested_by_name, requested_by_email)
 		VALUES ($1, $2, $3, $4, $5, true, $6, $7)
 		RETURNING id, task_date::text, start_time::text, end_time::text, title, COALESCE(description, ''), is_booked, COALESCE(requested_by_name, ''), COALESCE(requested_by_email, ''), created_at
 	`
@@ -126,7 +123,7 @@ func (h *TasksHandler) PublicRequestSlot(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Message: "Failed to submit booking request: " + err.Error()})
+		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Message: "Failed to submit request: " + err.Error()})
 		return
 	}
 
@@ -141,12 +138,11 @@ func (h *TasksHandler) PublicRequestSlot(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(models.APIResponse{
 		Success: true,
-		Message: "Booking request submitted successfully!",
+		Message: "Booking request submitted successfully",
 		Data:    newTask,
 	})
 }
 
-// CreateTask handles POST /api/tasks (Protected Admin Endpoint)
 func (h *TasksHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	var req models.CreateTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -159,7 +155,7 @@ func (h *TasksHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	if req.TaskDate == "" || req.StartTime == "" || req.EndTime == "" || req.Title == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Message: "Missing required fields (date, start_time, end_time, title)"})
+		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Message: "Missing required fields"})
 		return
 	}
 
@@ -167,7 +163,7 @@ func (h *TasksHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	query := `
-		INSERT INTO tasks (task_date, start_time, end_time, title, description, is_booked, requested_by_name, requested_by_email)
+		INSERT INTO kalender_tasks (task_date, start_time, end_time, title, description, is_booked, requested_by_name, requested_by_email)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, task_date::text, start_time::text, end_time::text, title, COALESCE(description, ''), is_booked, COALESCE(requested_by_name, ''), COALESCE(requested_by_email, ''), created_at
 	`
@@ -201,7 +197,6 @@ func (h *TasksHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ToggleTaskBooking handles PUT /api/tasks/{id}/toggle (Protected Admin Endpoint)
 func (h *TasksHandler) ToggleTaskBooking(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
 	if taskID == "" {
@@ -214,7 +209,7 @@ func (h *TasksHandler) ToggleTaskBooking(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	query := `UPDATE tasks SET is_booked = NOT is_booked WHERE id = $1 RETURNING is_booked`
+	query := `UPDATE kalender_tasks SET is_booked = NOT is_booked WHERE id = $1 RETURNING is_booked`
 	var newBookedState bool
 	err := h.db.QueryRow(ctx, query, taskID).Scan(&newBookedState)
 
@@ -228,12 +223,11 @@ func (h *TasksHandler) ToggleTaskBooking(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(models.APIResponse{
 		Success: true,
-		Message: "Booking status toggled",
+		Message: "Booking status updated",
 		Data:    map[string]any{"is_booked": newBookedState},
 	})
 }
 
-// DeleteTask handles DELETE /api/tasks/{id} (Protected Admin Endpoint)
 func (h *TasksHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
 	if taskID == "" {
@@ -246,7 +240,7 @@ func (h *TasksHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	_, err := h.db.Exec(ctx, "DELETE FROM tasks WHERE id = $1", taskID)
+	_, err := h.db.Exec(ctx, "DELETE FROM kalender_tasks WHERE id = $1", taskID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
