@@ -50,6 +50,7 @@ func (h *CalendarHandler) RenderCalendar(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
 	if err := h.templates.ExecuteTemplate(w, "base.html", calendarData); err != nil {
 		log.Printf("Error rendering template: %v", err)
 		http.Error(w, "Template Execution Error", http.StatusInternalServerError)
@@ -79,6 +80,7 @@ func (h *CalendarHandler) buildCalendarMonth(ctx context.Context, year, month in
 
 	var weeks [][]models.DaySummary
 	var currentWeek []models.DaySummary
+	var agenda []models.DaySummary
 
 	currDate := gridStart
 	for !currDate.After(gridEnd) {
@@ -109,8 +111,11 @@ func (h *CalendarHandler) buildCalendarMonth(ctx context.Context, year, month in
 		daySummary := models.DaySummary{
 			Date:           dateStr,
 			DayNumber:      currDate.Day(),
+			Weekday:        currDate.Format("Mon"),
+			LongLabel:      currDate.Format("Monday, January 2"),
 			IsCurrentMonth: isCurrentMonth,
 			IsToday:        dateStr == todayStr,
+			IsPast:         dateStr < todayStr,
 			Status:         status,
 			TaskCount:      len(dayTasks),
 			AvailableCount: availCount,
@@ -119,6 +124,9 @@ func (h *CalendarHandler) buildCalendarMonth(ctx context.Context, year, month in
 		}
 
 		currentWeek = append(currentWeek, daySummary)
+		if isCurrentMonth && len(dayTasks) > 0 {
+			agenda = append(agenda, daySummary)
+		}
 
 		if len(currentWeek) == 7 {
 			weeks = append(weeks, currentWeek)
@@ -141,19 +149,13 @@ func (h *CalendarHandler) buildCalendarMonth(ctx context.Context, year, month in
 		NextYear:    nextMonthTime.Year(),
 		NextMonth:   int(nextMonthTime.Month()),
 		Weeks:       weeks,
+		Agenda:      agenda,
 		IsAdmin:     isAdmin,
 	}, nil
 }
 
 func (h *CalendarHandler) fetchTasksForDateRange(ctx context.Context, startDate, endDate string) (map[string][]models.Task, error) {
-	query := `
-		SELECT id, task_date::text, start_time::text, end_time::text, title, COALESCE(description, ''), is_booked, COALESCE(requested_by_name, ''), COALESCE(requested_by_email, ''), created_at
-		FROM kalender_tasks
-		WHERE task_date >= $1 AND task_date <= $2
-		ORDER BY task_date ASC, start_time ASC
-	`
-
-	rows, err := h.db.Query(ctx, query, startDate, endDate)
+	rows, err := h.db.Query(ctx, `SELECT `+taskColumns+` FROM kalender_tasks WHERE task_date >= $1 AND task_date <= $2 ORDER BY task_date ASC, start_time ASC`, startDate, endDate)
 	if err != nil {
 		return nil, err
 	}
@@ -161,24 +163,12 @@ func (h *CalendarHandler) fetchTasksForDateRange(ctx context.Context, startDate,
 
 	result := make(map[string][]models.Task)
 	for rows.Next() {
-		var t models.Task
-		var startTimeRaw, endTimeRaw string
-		if err := rows.Scan(&t.ID, &t.TaskDate, &startTimeRaw, &endTimeRaw, &t.Title, &t.Description, &t.IsBooked, &t.RequestedByName, &t.RequestedByEmail, &t.CreatedAt); err != nil {
+		t, err := scanTask(rows)
+		if err != nil {
 			return nil, err
 		}
-		if len(startTimeRaw) >= 5 {
-			t.StartTime = startTimeRaw[:5]
-		} else {
-			t.StartTime = startTimeRaw
-		}
-		if len(endTimeRaw) >= 5 {
-			t.EndTime = endTimeRaw[:5]
-		} else {
-			t.EndTime = endTimeRaw
-		}
-
 		result[t.TaskDate] = append(result[t.TaskDate], t)
 	}
 
-	return result, nil
+	return result, rows.Err()
 }

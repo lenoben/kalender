@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Offline · ChronosHub</title>
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script>
+    try {
+      var t = localStorage.getItem('theme');
+      var dark = t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <main class="app-main">
+    <div class="container" style="max-width: 440px; padding-top: 12vh;">
+      <div class="card empty" style="padding: 40px 24px;">
+        <img src="/static/icons/icon.svg" alt="" width="56" height="56" style="border-radius: 14px;">
+        <h1 style="font-size: 20px; color: var(--text);">You're offline</h1>
+        <p>This page hasn't been saved for offline use yet. Check your connection and try again.</p>
+        <button class="btn btn-primary" onclick="location.reload()" style="margin-top: 8px;">Retry</button>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

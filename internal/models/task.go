@@ -20,8 +20,11 @@ type Task struct {
 type DaySummary struct {
 	Date           string `json:"date"` // YYYY-MM-DD
 	DayNumber      int    `json:"day_number"`
+	Weekday        string `json:"weekday"`    // Mon, Tue, ...
+	LongLabel      string `json:"long_label"` // Monday, January 2
 	IsCurrentMonth bool   `json:"is_current_month"`
 	IsToday        bool   `json:"is_today"`
+	IsPast         bool   `json:"is_past"`
 	Status         string `json:"status"` // "available" (green), "booked" (red), "none" (gray)
 	TaskCount      int    `json:"task_count"`
 	AvailableCount int    `json:"available_count"`
@@ -39,6 +42,7 @@ type CalendarMonth struct {
 	NextYear    int            `json:"next_year"`
 	NextMonth   int            `json:"next_month"`
 	Weeks       [][]DaySummary `json:"weeks"`
+	Agenda      []DaySummary   `json:"agenda"` // days of this month that have tasks
 	IsAdmin     bool           `json:"is_admin"`
 }
 

@@ -34,17 +34,7 @@ func main() {
 
 	// Parse Templates
 	tmplPattern := filepath.Join("templates", "*.html")
-	funcMap := template.FuncMap{
-		"seq": func(n int) []int {
-			result := make([]int, n)
-			for i := range result {
-				result[i] = i + 1
-			}
-			return result
-		},
-	}
-
-	tmpl, err := template.New("base").Funcs(funcMap).ParseGlob(tmplPattern)
+	tmpl, err := template.New("base").ParseGlob(tmplPattern)
 	if err != nil {
 		log.Fatalf("Failed to parse templates pattern '%s': %v", tmplPattern, err)
 	}
@@ -57,14 +47,32 @@ func main() {
 	// Chi Router Setup
 	r := chi.NewRouter()
 
+	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Compress(5))
+	r.Use(securityHeaders)
 
 	// Static Files Route
 	workDir, _ := os.Getwd()
-	filesDir := http.Dir(filepath.Join(workDir, "static"))
-	FileServer(r, "/static", filesDir)
+	staticDir := filepath.Join(workDir, "static")
+	FileServer(r, "/static", http.Dir(staticDir))
+
+	// PWA: service worker must be served from the root to control the whole app
+	r.Get("/sw.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		http.ServeFile(w, r, filepath.Join(staticDir, "sw.js"))
+	})
+	r.Get("/manifest.webmanifest", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/manifest+json")
+		w.Header().Set("Cache-Control", "no-cache")
+		http.ServeFile(w, r, filepath.Join(staticDir, "manifest.webmanifest"))
+	})
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("ok"))
+	})
 
 	// Public Routes
 	r.Get("/", calendarHandler.RenderCalendar)
@@ -115,19 +123,24 @@ func main() {
 	log.Println("Server stopped cleanly.")
 }
 
-// FileServer conveniently sets up a static file server route
-func FileServer(r chi.Router, path string, root http.FileSystem) {
-	if path != "/" && path[len(path)-1] != '/' {
-		r.Get(path, http.RedirectHandler(path+"/", http.StatusMovedPermanently).ServeHTTP)
-		path += "/"
-	}
-	path += "*"
-
-	r.Get(path, func(w http.ResponseWriter, r *http.Request) {
-		rctx := chi.RouteContext(r.Context())
-		pathPrefix := filepath.Clean(rctx.RoutePattern())
-		pathPrefix = pathPrefix[:len(pathPrefix)-2]
-		fs := http.StripPrefix(pathPrefix, http.FileServer(root))
+// FileServer serves a static directory under the given URL prefix (e.g. "/static")
+func FileServer(r chi.Router, prefix string, root http.FileSystem) {
+	fs := http.StripPrefix(prefix, http.FileServer(root))
+	r.Get(prefix, http.RedirectHandler(prefix+"/", http.StatusMovedPermanently).ServeHTTP)
+	r.Get(prefix+"/*", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
 		fs.ServeHTTP(w, r)
+	})
+}
+
+// securityHeaders adds conservative browser security headers to every response
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		next.ServeHTTP(w, r)
 	})
 }
